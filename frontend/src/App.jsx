@@ -28,12 +28,17 @@ function App() {
   // Customers tab state
   const [customers, setCustomers] = useState([]);
   const [customersLoading, setCustomersLoading] = useState(false);
-  const [newCustomer, setNewCustomer] = useState({ customerCode: '', name: '', ipAddress: '' });
+  const [newCustomer, setNewCustomer] = useState({ customerCode: '', name: '', ipAddress: '', serviceUrl: '' });
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [isEditingCustomer, setIsEditingCustomer] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerFlags, setCustomerFlags] = useState([]);
   const [customerFlagsLoading, setCustomerFlagsLoading] = useState(false);
   const [savingCustomerFlag, setSavingCustomerFlag] = useState(null);
+  const [applyingCustomer, setApplyingCustomer] = useState(false);
+
+  // Removed customerFlagEdits
+
 
   // Strategy Editor State
   const [editingStrategyId, setEditingStrategyId] = useState('');
@@ -79,18 +84,50 @@ function App() {
   const handleCreateCustomer = (e) => {
     e.preventDefault();
     setCreatingCustomer(true);
-    fetch('http://localhost:8081/api/v1/flags/customers', {
-      method: 'POST',
+    const method = isEditingCustomer ? 'PUT' : 'POST';
+    const url = isEditingCustomer 
+      ? `http://localhost:8081/api/v1/flags/customers/${newCustomer.customerCode}`
+      : 'http://localhost:8081/api/v1/flags/customers';
+
+    fetch(url, {
+      method: method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newCustomer)
     })
-    .then(res => res.json())
+    .then(async res => {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Failed to save customer');
+      }
+      return res.json();
+    })
     .then(() => {
-      setNewCustomer({ customerCode: '', name: '', ipAddress: '' });
+      setNewCustomer({ customerCode: '', name: '', ipAddress: '', serviceUrl: '' });
+      setIsEditingCustomer(false);
       fetchCustomers();
       setCreatingCustomer(false);
+      showToast('Success', `Customer ${isEditingCustomer ? 'updated' : 'created'} successfully.`, 'success');
     })
-    .catch(err => { console.error(err); setCreatingCustomer(false); });
+    .catch(err => { 
+      console.error(err); 
+      setCreatingCustomer(false); 
+      showToast('Error', err.message, 'error');
+    });
+  };
+
+  const handleEditCustomerClick = (c) => {
+    setNewCustomer({
+      customerCode: c.customerCode,
+      name: c.name,
+      ipAddress: c.ipAddress,
+      serviceUrl: c.serviceUrl || ''
+    });
+    setIsEditingCustomer(true);
+  };
+
+  const handleCancelEdit = () => {
+    setNewCustomer({ customerCode: '', name: '', ipAddress: '', serviceUrl: '' });
+    setIsEditingCustomer(false);
   };
 
   const handleDeleteCustomer = (customerCode) => {
@@ -121,16 +158,23 @@ function App() {
     setCustomerFlagsLoading(true);
     fetch(`http://localhost:8081/api/v1/flags/customers/${customer.customerCode}/features`)
       .then(res => res.json())
-      .then(data => { setCustomerFlags(data); setCustomerFlagsLoading(false); })
+      .then(data => {
+        setCustomerFlags(data);
+        setCustomerFlagsLoading(false);
+      })
       .catch(err => { console.error(err); setCustomerFlagsLoading(false); });
   };
 
-  const updateCustomerFlag = (flagName, enabled) => {
-    setSavingCustomerFlag(flagName);
+  const toggleCustomerFlagStatus = (flagName, currentStatus) => {
+    const cflag = customerFlags.find(cf => cf.flagName === flagName);
+    const strategyId = cflag ? cflag.strategyId : null;
+    const strategyParams = cflag ? cflag.strategyParams : null;
+    const newStatus = !currentStatus;
+
     fetch(`http://localhost:8081/api/v1/flags/customers/${selectedCustomer.customerCode}/features/${flagName}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled })
+      body: JSON.stringify({ enabled: newStatus, strategyId, strategyParams })
     })
     .then(res => res.json())
     .then(updated => {
@@ -139,9 +183,30 @@ function App() {
         if (exists) return prev.map(f => f.flagName === updated.flagName ? updated : f);
         return [...prev, updated];
       });
-      setSavingCustomerFlag(null);
+      if (selectedFlag?.name === updated.flagName) {
+        setSelectedFlag(prev => ({ ...prev, enabled: newStatus }));
+      }
     })
-    .catch(err => { console.error(err); setSavingCustomerFlag(null); });
+    .catch(err => console.error(err));
+  };
+
+  const applyToCustomer = () => {
+    setApplyingCustomer(true);
+    fetch(`http://localhost:8081/api/v1/flags/apply/${selectedCustomer.customerCode}`, {
+      method: 'POST'
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to apply');
+      return data;
+    })
+    .then(data => {
+      showToast('Applied!', `Snapshot v${data.version ? data.version.substring(0,19) : ''} pushed to ${selectedCustomer.name}`, 'success');
+    })
+    .catch(err => {
+      showToast('Error', 'Cannot apply: ' + err.message, 'error');
+    })
+    .finally(() => setApplyingCustomer(false));
   };
 
   const handleLogin = (e) => {
@@ -168,24 +233,41 @@ function App() {
     .catch(err => console.error(err));
   };
 
+  const getParamValueFromMap = (stratId, parameters) => {
+    if (!parameters) return '';
+    if (stratId === 'username' && parameters.users) return parameters.users;
+    if (stratId === 'user-role' && parameters.roles) return parameters.roles;
+    if (stratId === 'release-date' && parameters.date) return parameters.date;
+    if (stratId === 'remote-client-ip' && parameters.ips) return parameters.ips;
+    if (stratId === 'remote-server-name' && parameters.serverNames) return parameters.serverNames;
+    if (stratId === 'remote-spring-profile' && parameters.profiles) return parameters.profiles;
+    if (stratId === 'gradual-rollout' && parameters.percentage) return parameters.percentage;
+    if (stratId === 'remote-system-property' && parameters.property) return parameters.property + (parameters.value ? '=' + parameters.value : '');
+    return Object.values(parameters).find(v => v !== null && v !== '') || '';
+  };
+
   const openDrawer = (flag) => {
     setSelectedFlag(flag);
     const stratId = flag.strategyId || '';
     setEditingStrategyId(stratId);
+    setEditingParams(getParamValueFromMap(stratId, flag.parameters));
+    setDrawerOpen(true);
+  };
+
+  const openCustomerDrawer = (flag, cflag) => {
+    const isEnabled = cflag ? Boolean(cflag.enabled) : false;
+    const stratId = cflag ? cflag.strategyId : null;
+    const params = cflag ? cflag.strategyParams : null;
     
-    let paramVal = '';
-    if (flag.parameters) {
-      if (stratId === 'username' && flag.parameters.users) paramVal = flag.parameters.users;
-      else if (stratId === 'user-role' && flag.parameters.roles) paramVal = flag.parameters.roles;
-      else if (stratId === 'release-date' && flag.parameters.date) paramVal = flag.parameters.date;
-      else if (stratId === 'remote-client-ip' && flag.parameters.ips) paramVal = flag.parameters.ips;
-      else if (stratId === 'remote-server-name' && flag.parameters.serverNames) paramVal = flag.parameters.serverNames;
-      else if (stratId === 'remote-spring-profile' && flag.parameters.profiles) paramVal = flag.parameters.profiles;
-      else if (stratId === 'gradual-rollout' && flag.parameters.percentage) paramVal = flag.parameters.percentage;
-      else if (stratId === 'remote-system-property' && flag.parameters.property) paramVal = flag.parameters.property + (flag.parameters.value ? '=' + flag.parameters.value : '');
-      else paramVal = Object.values(flag.parameters).find(v => v !== null && v !== '') || '';
-    }
-    setEditingParams(paramVal);
+    setSelectedFlag({
+      ...flag,
+      enabled: isEnabled,
+      strategyId: stratId,
+      parameters: params
+    });
+    
+    setEditingStrategyId(stratId || '');
+    setEditingParams(getParamValueFromMap(stratId, params));
     setDrawerOpen(true);
   };
 
@@ -194,31 +276,27 @@ function App() {
     setTimeout(() => setSelectedFlag(null), 300);
   };
 
-  const saveStrategy = () => {
+  const buildParamsMap = (strategyId, paramsRaw) => {
     const paramsMap = {};
-    if (editingStrategyId === 'username') {
-      paramsMap['users'] = editingParams;
-    } else if (editingStrategyId === 'user-role') {
-      paramsMap['roles'] = editingParams;
-    } else if (editingStrategyId === 'release-date') {
-      paramsMap['date'] = editingParams;
-    } else if (editingStrategyId === 'remote-client-ip') {
-      paramsMap['ips'] = editingParams;
-    } else if (editingStrategyId === 'remote-server-name') {
-      paramsMap['serverNames'] = editingParams;
-    } else if (editingStrategyId === 'remote-spring-profile') {
-      paramsMap['profiles'] = editingParams;
-    } else if (editingStrategyId === 'gradual-rollout') {
-      paramsMap['percentage'] = editingParams;
-    } else if (editingStrategyId === 'remote-system-property') {
-      const parts = editingParams.split('=');
+    if (strategyId === 'username') paramsMap['users'] = paramsRaw;
+    else if (strategyId === 'user-role') paramsMap['roles'] = paramsRaw;
+    else if (strategyId === 'release-date') paramsMap['date'] = paramsRaw;
+    else if (strategyId === 'remote-client-ip') paramsMap['ips'] = paramsRaw;
+    else if (strategyId === 'remote-server-name') paramsMap['serverNames'] = paramsRaw;
+    else if (strategyId === 'remote-spring-profile') paramsMap['profiles'] = paramsRaw;
+    else if (strategyId === 'gradual-rollout') paramsMap['percentage'] = paramsRaw;
+    else if (strategyId === 'remote-system-property') {
+      const parts = paramsRaw.split('=');
       paramsMap['property'] = parts[0] ? parts[0].trim() : '';
       paramsMap['value'] = parts[1] ? parts.slice(1).join('=').trim() : '';
-    } else if (editingStrategyId) {
-      // Custom fallback
-      paramsMap['value'] = editingParams;
+    } else if (strategyId) {
+      paramsMap['value'] = paramsRaw;
     }
+    return paramsMap;
+  };
 
+  const saveGlobalStrategy = () => {
+    const paramsMap = buildParamsMap(editingStrategyId, editingParams);
     fetch(`http://localhost:8081/api/v1/flags/${selectedFlag.name}/strategy`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -241,6 +319,37 @@ function App() {
     .catch(err => {
       console.error(err);
       showToast('Error', 'Không thể lưu strategy: ' + err.message, 'error');
+    });
+  };
+
+  const saveCustomerStrategy = () => {
+    const paramsMap = buildParamsMap(editingStrategyId, editingParams);
+    fetch(`http://localhost:8081/api/v1/flags/customers/${selectedCustomer.customerCode}/features/${selectedFlag.name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        enabled: selectedFlag.enabled, 
+        strategyId: editingStrategyId || null, 
+        strategyParams: Object.keys(paramsMap).length > 0 ? paramsMap : null 
+      })
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to save strategy');
+      return data;
+    })
+    .then(updated => {
+      setCustomerFlags(prev => {
+        const exists = prev.find(f => f.flagName === updated.flagName);
+        if (exists) return prev.map(f => f.flagName === updated.flagName ? updated : f);
+        return [...prev, updated];
+      });
+      closeDrawer();
+      showToast('Saved', `Strategy updated for ${selectedCustomer.name}`, 'success');
+    })
+    .catch(err => {
+      console.error(err);
+      showToast('Error', 'Failed to save strategy: ' + err.message, 'error');
     });
   };
 
@@ -358,9 +467,11 @@ function App() {
             <p className="page-subtitle">Manage feature flags by project, user, role, and rollout percentage without redeploying</p>
           </div>
           <div className="header-right">
-            <button className="btn btn-primary" onClick={applyChanges} disabled={applying}>
-              {applying ? 'Applying...' : 'Apply'}
-            </button>
+            {activeTab === 'flags' && (
+              <button className="btn btn-primary" onClick={applyChanges} disabled={applying}>
+                {applying ? 'Applying...' : 'Apply'}
+              </button>
+            )}
             <button className="btn btn-icon"><i className="fa-solid fa-globe"></i> EN</button>
             <button className="btn btn-icon"><i className="fa-regular fa-bell"></i></button>
             <div className="user-profile">
@@ -481,13 +592,15 @@ function App() {
           <div>
             {!selectedCustomer ? (
               <>
-                {/* Create customer form */}
+                {/* Create/Edit customer form */}
                 <div className="rule-card" style={{marginBottom: '24px'}}>
-                  <div style={{fontWeight: 700, fontSize: '15px', marginBottom: '14px', color: 'var(--text-primary)'}}>➕ Add New Customer</div>
+                  <div style={{fontWeight: 700, fontSize: '15px', marginBottom: '14px', color: 'var(--text-primary)'}}>
+                    {isEditingCustomer ? '✏️ Edit Customer' : '➕ Add New Customer'}
+                  </div>
                   <form onSubmit={handleCreateCustomer} style={{display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'flex-end'}}>
                     <div className="form-group" style={{margin: 0, flex: '1 1 150px'}}>
                       <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)'}}>Customer Code</label>
-                      <input className="form-input" placeholder="e.g. CUST_001" value={newCustomer.customerCode} onChange={e => setNewCustomer({...newCustomer, customerCode: e.target.value})} required />
+                      <input className="form-input" placeholder="e.g. CUST_001" value={newCustomer.customerCode} onChange={e => setNewCustomer({...newCustomer, customerCode: e.target.value})} required disabled={isEditingCustomer} />
                     </div>
                     <div className="form-group" style={{margin: 0, flex: '1 1 150px'}}>
                       <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)'}}>Full Name</label>
@@ -497,13 +610,26 @@ function App() {
                       <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)'}}>IP Address</label>
                       <input className="form-input" placeholder="e.g. 192.168.1.10" value={newCustomer.ipAddress} onChange={e => setNewCustomer({...newCustomer, ipAddress: e.target.value})} required />
                     </div>
-                    <button type="submit" className="btn btn-primary" disabled={creatingCustomer} style={{height: '38px'}}>{creatingCustomer ? 'Saving...' : 'Add Customer'}</button>
+                    <div className="form-group" style={{margin: 0, flex: '1 1 150px'}}>
+                      <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)'}}>Service URL (Docker)</label>
+                      <input className="form-input" placeholder="http://tracking-order-a:8080" value={newCustomer.serviceUrl} onChange={e => setNewCustomer({...newCustomer, serviceUrl: e.target.value})} required />
+                    </div>
+                    <div style={{display: 'flex', gap: '8px'}}>
+                      <button type="submit" className="btn btn-primary" disabled={creatingCustomer} style={{height: '38px'}}>
+                        {creatingCustomer ? 'Saving...' : (isEditingCustomer ? 'Save Changes' : 'Add Customer')}
+                      </button>
+                      {isEditingCustomer && (
+                        <button type="button" className="btn btn-outline" onClick={handleCancelEdit} style={{height: '38px'}}>
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </form>
                 </div>
                 {/* Customers list */}
                 <div className="table-container">
                   <table className="flags-table">
-                    <thead><tr><th>CODE</th><th>NAME</th><th>IP ADDRESS</th><th>ACTIONS</th></tr></thead>
+                    <thead><tr><th>CODE</th><th>NAME</th><th>IP ADDRESS</th><th>SERVICE URL</th><th>ACTIONS</th></tr></thead>
                     <tbody>
                       {customersLoading && <tr><td colSpan="4" style={{textAlign: 'center'}}>Loading...</td></tr>}
                       {!customersLoading && customers.map(c => (
@@ -511,8 +637,12 @@ function App() {
                           <td><span className="flag-key">{c.customerCode}</span></td>
                           <td><span className="flag-name">{c.name}</span></td>
                           <td><span style={{fontFamily: 'monospace', fontSize: '13px'}}>{c.ipAddress}</span></td>
+                          <td><span style={{fontFamily: 'monospace', fontSize: '13px', color: '#3b82f6'}}>{c.serviceUrl || '-'}</span></td>
                           <td>
                             <div style={{display: 'flex', gap: '8px'}}>
+                              <button className="btn btn-outline" style={{fontSize: '12px', padding: '4px 12px', color: '#10b981', borderColor: '#10b981'}} onClick={() => handleEditCustomerClick(c)}>
+                                <i className="fa-solid fa-pen" style={{marginRight: '6px'}}></i>Edit
+                              </button>
                               <button className="btn btn-outline" style={{fontSize: '12px', padding: '4px 12px'}} onClick={() => openCustomerFlags(c)}>
                                 <i className="fa-solid fa-sliders" style={{marginRight: '6px'}}></i>Manage Flags
                               </button>
@@ -523,7 +653,7 @@ function App() {
                           </td>
                         </tr>
                       ))}
-                      {!customersLoading && customers.length === 0 && <tr><td colSpan="4" style={{textAlign: 'center', padding: '32px', color: 'var(--text-muted)'}}>No customers yet.</td></tr>}
+                      {!customersLoading && customers.length === 0 && <tr><td colSpan="5" style={{textAlign: 'center', padding: '32px', color: 'var(--text-muted)'}}>No customers yet.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -540,39 +670,84 @@ function App() {
                     <span style={{fontFamily: 'monospace'}}>{selectedCustomer.ipAddress}</span>
                   </div>
                 </div>
-                <div style={{fontWeight: 700, fontSize: '14px', marginBottom: '12px', color: 'var(--text-primary)'}}>Feature Flag Overrides for this Customer</div>
+                <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px'}}>
+                  <div style={{fontWeight: 700, fontSize: '14px', color: 'var(--text-primary)'}}>Feature Flag Overrides for this Customer</div>
+                  <button className="btn btn-primary" onClick={applyToCustomer} disabled={applyingCustomer} style={{fontSize: '13px', padding: '6px 16px'}}>
+                    <i className="fa-solid fa-paper-plane" style={{marginRight: '6px'}}></i>
+                    {applyingCustomer ? 'Applying...' : `Apply to ${selectedCustomer.name}`}
+                  </button>
+                </div>
                 <div className="table-container">
                   <table className="flags-table">
-                    <thead><tr><th>FLAG</th><th>STATUS FOR THIS CUSTOMER</th><th>SAVE</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>FLAG NAME</th>
+                        <th>KEY</th>
+                        <th>STRATEGY TYPE</th>
+                        <th>PARAMETERS</th>
+                        <th>STATUS</th>
+                        <th>RULES</th>
+                        <th>UPDATED</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      {customerFlagsLoading && <tr><td colSpan="3" style={{textAlign: 'center'}}>Loading...</td></tr>}
+                      {customerFlagsLoading && <tr><td colSpan="7" style={{textAlign: 'center'}}>Loading...</td></tr>}
                       {!customerFlagsLoading && flags.map(flag => {
                         const cflag = customerFlags.find(cf => cf.flagName === flag.name);
                         const isEnabled = cflag ? Boolean(cflag.enabled) : false;
+                        
+                        // Use pseudo flag to utilize getParameterDisplay correctly
+                        const pseudoFlag = {
+                          ...flag,
+                          strategyId: cflag ? cflag.strategyId : null,
+                          parameters: cflag ? cflag.strategyParams : null
+                        };
+
                         return (
-                          <tr key={flag.name} style={{cursor: 'default'}}>
-                            <td><span className="flag-name">{flag.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}</span></td>
+                          <tr key={flag.name} onClick={() => openCustomerDrawer(flag, cflag)}>
                             <td>
+                              <span className="flag-name">{flag.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}</span>
+                              <span className="flag-desc">{flag.description || 'No description provided'}</span>
+                            </td>
+                            <td><span className="flag-key">{flag.name.toLowerCase()}</span></td>
+                            <td>
+                              {pseudoFlag.strategyId ? (
+                                <span className="badge badge-release" style={{textTransform: 'none'}}>{pseudoFlag.strategyId}</span>
+                              ) : (
+                                <span className="badge" style={{background: '#f3f4f6', color: '#6b7280'}}>None</span>
+                              )}
+                            </td>
+                            <td style={{maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
+                              {getParameterDisplay(pseudoFlag) ? (
+                                 <span style={{fontFamily: 'monospace', fontSize: '13px', color: '#4b5563'}} title={getParameterDisplay(pseudoFlag)}>
+                                   {getParameterDisplay(pseudoFlag)}
+                                 </span>
+                              ) : (
+                                 <span style={{color: '#9ca3af', fontStyle: 'italic', fontSize: '12px'}}>No params</span>
+                              )}
+                            </td>
+                            <td onClick={(e) => { e.stopPropagation(); toggleCustomerFlagStatus(flag.name, isEnabled); }}>
                               <div className="status-toggle">
                                 <label className="switch small">
-                                  <input type="checkbox" checked={isEnabled} onChange={e => updateCustomerFlag(flag.name, e.target.checked)} disabled={savingCustomerFlag === flag.name} />
+                                  <input type="checkbox" checked={isEnabled} readOnly />
                                   <span className="slider round"></span>
                                 </label>
-                                <span style={{fontSize: '13px', color: isEnabled ? 'var(--success)' : 'var(--text-muted)', fontWeight: 500}}>
-                                  {isEnabled ? 'Enabled for this customer' : 'Disabled for this customer'}
+                                <span style={{fontSize: '13px', color: isEnabled ? 'var(--success)' : 'var(--text-muted)', fontWeight: 500, cursor: 'pointer'}}>
+                                  {isEnabled ? 'On' : 'Off'}
                                 </span>
                               </div>
                             </td>
-                            <td>{savingCustomerFlag === flag.name ? <span style={{color: 'var(--text-muted)', fontSize: '13px'}}>Saving...</span> : <span style={{color: 'var(--success)', fontSize: '13px'}}>✓</span>}</td>
+                            <td><span style={{color: 'var(--primary)', background: '#fff3f2', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600}}>{pseudoFlag.strategyId ? '1 rule' : '0 rules'}</span></td>
+                            <td style={{color: 'var(--text-muted)', fontSize: '12px'}}>{cflag?.updatedAt ? new Date(cflag.updatedAt).toLocaleString() : '-'}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
-                <div style={{marginTop: '16px', padding: '12px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', fontSize: '13px', color: '#92400e'}}>
+                <div style={{marginTop: '16px', padding: '12px 16px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', fontSize: '13px', color: '#1e40af'}}>
                   <i className="fa-solid fa-circle-info" style={{marginRight: '8px'}}></i>
-                  After configuring all customer flags, go back and click <strong>Apply</strong> to push the snapshot to tracking-order.
+                  Configure flags and strategies, then click <strong>Apply to {selectedCustomer.name}</strong> to push the snapshot to that company's tracking-order instance.
                 </div>
               </>
             )}
@@ -691,7 +866,7 @@ function App() {
                 }}>Clear</button>
                 <div className="drawer-actions">
                     <button className="btn btn-outline" onClick={closeDrawer}>Discard</button>
-                    <button className="btn btn-primary" onClick={saveStrategy}>Save Changes</button>
+                    <button className="btn btn-primary" onClick={activeTab === 'customers' ? saveCustomerStrategy : saveGlobalStrategy}>Save Changes</button>
                 </div>
             </div>
           </>

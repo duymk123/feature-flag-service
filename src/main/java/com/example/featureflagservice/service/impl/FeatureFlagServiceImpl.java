@@ -219,6 +219,18 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         customer.setCustomerCode(request.getCustomerCode());
         customer.setName(request.getName());
         customer.setIpAddress(request.getIpAddress());
+        customer.setServiceUrl(request.getServiceUrl());
+        return toCustomerRes(customerRepo.save(customer));
+    }
+
+    @Override
+    @Transactional
+    public CustomerRes updateCustomer(String customerCode, CreateCustomerReq request) {
+        Customer customer = findCustomer(customerCode);
+        // Do not update customerCode as it is the identifier
+        customer.setName(request.getName());
+        customer.setIpAddress(request.getIpAddress());
+        customer.setServiceUrl(request.getServiceUrl());
         return toCustomerRes(customerRepo.save(customer));
     }
 
@@ -258,6 +270,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .findByCustomerAndFlagName(customer, normalizedFlagName)
                 .orElseGet(CustomerFeatureFlag::new);
 
+        //update flag
         customerFeatureFlag.setCustomer(customer);
         customerFeatureFlag.setFlagName(normalizedFlagName);
         customerFeatureFlag.setEnabled(Boolean.TRUE.equals(request.getEnabled()));
@@ -269,28 +282,83 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
+    // Bước 1: Lặp qua tất cả customer
     public Map<String, Object> applyToTrackingOrder() {
+        List<Customer> customers = customerRepo.findAll();
+        Map<String, Object> result = new HashMap<>();
+
+        for (Customer customer : customers) {
+            try {
+                // Tách biệt dữ liệu: đẩy cấu hình riêng biệt của từng customer sang instance tương ứng của họ
+                Map<String, Object> res = applyToCustomer(customer.getCustomerCode());
+                result.put(customer.getCustomerCode(), res);
+            } catch (Exception e) {
+                log.error("Faiculed to apply snapshot to stomer '{}'", customer.getCustomerCode(), e);
+                result.put(customer.getCustomerCode(), Map.of(
+                        "status", "FAILED",
+                        "error", e.getMessage()
+                ));
+            }
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional
+    // Bước 2: Lấy URL của đúng instance của customer đó
+    public Map<String, Object> applyToCustomer(String customerCode) {
+        // check customer hiện tại
+        Customer customer = findCustomer(customerCode);
+
+        // lấy ra url riêng của customer( http://tracking-order-b:8080)
+        // → "http://tracking-order-a:8080" hoặc "http://tracking-order-b:8080"
+        String targetUrl = customer.getServiceUrl();
+
+        // check nếu Url null hoặc empty
+        if (targetUrl == null || targetUrl.trim().isEmpty()) {
+            log.warn("Customer '{}' does not have a configured service URL, falling back to default.", customerCode);
+            targetUrl = trackingOrderUrl;
+        }
+        log.info("Applying snapshot for customer '{}' to URL: {}", customerCode, targetUrl);
+        return pushSnapshot(targetUrl, customerCode, customerCode);
+    }
+
+
+
+    /**
+     * @param url           URL của tracking-order instance
+     * @param label         Label để ghi vào audit log ("ALL" hoặc customerCode)
+     * @param customerCode  Nếu != null, chỉ gửi flag overrides của customer này;
+     *                      nếu null, gửi tất cả customers (dùng cho Apply global).
+     */
+    //helper:
+    // Bước 3: Gửi HTTP POST đến đúng instance
+    private Map<String, Object> pushSnapshot(String url, String label, String customerCode) {
         String version = Instant.now().toString();
         List<Map<String, Object>> features = Arrays.stream(FeatureFlags.values())
-                .map(flag -> toSnapshotFeature(flag, version))
+                .map(flag -> toSnapshotFeature(flag, version, customerCode))
                 .toList();
 
-        Map<String, Object> snapshot = Map.of(
-                "version", version,
-                "features", features
-        );
+        Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("version", version);
+        snapshot.put("customerCode", customerCode);
+        snapshot.put("features", features);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Token", trackingOrderSyncToken);
 
-        String url = trackingOrderUrl + "/api/v1/feature-flags/sync";
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, new HttpEntity<>(snapshot, headers), Map.class);
+        //url: localhost: 8081, 8082
+        String syncUrl = url + "/api/v1/feature-flags/sync";
+        // POST http://tracking-order-a:8080/api/v1/feature-flags/sync
+        //  hoặc POST http://tracking-order-b:8080/api/v1/feature-flags/sync
+        ResponseEntity<Map> response = restTemplate.postForEntity(syncUrl, new HttpEntity<>(snapshot, headers), Map.class);
 
+        // lưu tracking audit
         auditRepo.save(FeatureFlagAudit.builder()
-                .flagName("ALL")
+                .flagName(label)
                 .action("APPLY")
-                .details("Applied feature flag snapshot version " + version + " to tracking-order")
+                .details("Applied snapshot version " + version + " to tracking-order [" + url + "]")
                 .performedBy("admin")
                 .timestamp(LocalDateTime.now())
                 .build());
@@ -303,38 +371,76 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         );
     }
 
-    private Map<String, Object> toSnapshotFeature(FeatureFlags flag, String version) {
-        FeatureState state = featureManager.getFeatureState(flag);
-        List<Map<String, Object>> customers = customerFeatureFlagRepo.findByFlagName(flag.name()).stream()
-                .map(customerFeatureFlag -> {
-                    Customer customer = customerFeatureFlag.getCustomer();
-                    Map<String, Object> customerSnapshot = new HashMap<>();
-                    customerSnapshot.put("customerCode", customer.getCustomerCode());
-                    customerSnapshot.put("ipAddress", customer.getIpAddress());
-                    customerSnapshot.put("enabled", Boolean.TRUE.equals(customerFeatureFlag.getEnabled()));
-                    customerSnapshot.put("strategyId", customerFeatureFlag.getStrategyId());
-                    customerSnapshot.put("strategyParams", fromJson(customerFeatureFlag.getStrategyParams()));
-                    return customerSnapshot;
-                })
-                .toList();
 
-        // Convert Map<String,Object> -> Map<String,String> to match FeatureFlagSyncItem DTO in tracking-order
-        Map<String, String> togglzParams = new HashMap<>();
+
+    /**
+     * @param customerCode  Nếu != null, chỉ lấy overrides của customer này.
+     *                      Toàn bộ instance tracking-order thuộc về customer đó,
+     *                      nên global row sẽ phản ánh trạng thái của customer (không cần IP match).
+     */
+    //build context riêng cho customer
+    private Map<String, Object> toSnapshotFeature(FeatureFlags flag, String version, String customerCode) {
+        //lấy trạng thái hiện tại
+        FeatureState state = featureManager.getFeatureState(flag);
+
+        // Mặc định: lấy từ Togglz global state
+        boolean effectiveEnabled = (state != null && state.isEnabled());
+
+        String effectiveStrategyId = (state == null ? null : state.getStrategyId());
+
+        Map<String, String> effectiveParams = new HashMap<>();
+
         if (state != null && state.getParameterNames() != null) {
             for (String key : state.getParameterNames()) {
                 Object val = state.getParameter(key);
                 if (val != null) {
-                    togglzParams.put(key, val.toString());
+                    effectiveParams.put(key, val.toString());
                 }
             }
         }
 
+        // Khi apply cho 1 customer cụ thể:
+        List<Map<String, Object>> customerSnapshots = List.of();
+
+        if (customerCode != null) {
+            // Lấy cấu hình riêng của customer này
+            var customerOverride = customerFeatureFlagRepo.findByFlagName(flag.name()).stream()
+                    .filter(cf -> customerCode.equalsIgnoreCase(cf.getCustomer().getCustomerCode()))
+                    .findFirst();
+
+            if (customerOverride.isPresent()) {
+                var override = customerOverride.get();
+                // Thay thế hoàn toàn trạng thái global bằng trạng thái của customer
+                effectiveEnabled = Boolean.TRUE.equals(override.getEnabled());
+                effectiveStrategyId = override.getStrategyId(); // Có thể null
+                effectiveParams = fromJson(override.getStrategyParams());
+            }
+            // QUAN TRỌNG: Trả về customerSnapshots rỗng (List.of()) 
+            // -> DB tracking-order sẽ lưu client_ip = NULL và customer_code = NULL
+            // -> Bất kỳ IP nào (kể cả Postman 172.x.x.x) gọi vào instance này đều nhận được trạng thái của customer này.
+        } else {
+            // Apply Global: giữ nguyên logic cũ, gửi IP của tất cả customers
+            var allCustomerFlags = customerFeatureFlagRepo.findByFlagName(flag.name());
+            customerSnapshots = allCustomerFlags.stream()
+                    .map(customerFeatureFlag -> {
+                        Customer customer = customerFeatureFlag.getCustomer();
+                        Map<String, Object> customerSnapshot = new HashMap<>();
+                        customerSnapshot.put("customerCode", customer.getCustomerCode());
+                        customerSnapshot.put("ipAddress", customer.getIpAddress());
+                        customerSnapshot.put("enabled", Boolean.TRUE.equals(customerFeatureFlag.getEnabled()));
+                        customerSnapshot.put("strategyId", customerFeatureFlag.getStrategyId());
+                        customerSnapshot.put("strategyParams", fromJson(customerFeatureFlag.getStrategyParams()));
+                        return customerSnapshot;
+                    })
+                    .toList();
+        }
+
         Map<String, Object> featureSnapshot = new HashMap<>();
         featureSnapshot.put("flagName", flag.name());
-        featureSnapshot.put("enabled", state != null && state.isEnabled());
-        featureSnapshot.put("strategyId", state == null ? null : state.getStrategyId());
-        featureSnapshot.put("strategyParams", togglzParams);
-        featureSnapshot.put("customers", customers);
+        featureSnapshot.put("enabled", effectiveEnabled);
+        featureSnapshot.put("strategyId", effectiveStrategyId);
+        featureSnapshot.put("strategyParams", effectiveParams);
+        featureSnapshot.put("customers", customerSnapshots);
         featureSnapshot.put("version", version);
         return featureSnapshot;
     }
@@ -351,6 +457,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .customerCode(customer.getCustomerCode())
                 .name(customer.getName())
                 .ipAddress(customer.getIpAddress())
+                .serviceUrl(customer.getServiceUrl())
                 .build();
     }
 

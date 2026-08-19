@@ -38,6 +38,9 @@ public class Customer {
     @Column(name = "ip_address", nullable = false, unique = true, length = 100)
     private String ipAddress;
 
+    @Column(name = "service_url")
+    private String serviceUrl;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

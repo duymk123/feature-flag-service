@@ -7,6 +7,7 @@ spring:
     url: jdbc:mysql://localhost:3306/feature_flag_db
 
 
+
 server:
   port: 8081
 
@@ -14,6 +15,7 @@ tracking-order:
   service:
     url: http://localhost:8080
   sync-token: change-me
+
 
 logging:
   level:

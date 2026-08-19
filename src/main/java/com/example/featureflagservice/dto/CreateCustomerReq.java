@@ -17,4 +17,6 @@ public class CreateCustomerReq {
 
     @NotBlank
     private String ipAddress;
+
+    private String serviceUrl;
 }

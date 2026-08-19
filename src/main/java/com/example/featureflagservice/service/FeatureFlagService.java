@@ -28,6 +28,8 @@ public interface FeatureFlagService {
 
     CustomerRes createCustomer(CreateCustomerReq request);
 
+    CustomerRes updateCustomer(String customerCode, CreateCustomerReq request);
+
     void deleteCustomer(String customerCode);
 
     List<CustomerFeatureFlagRes> getCustomerFeatureFlags(String customerCode);
@@ -35,4 +37,7 @@ public interface FeatureFlagService {
     CustomerFeatureFlagRes updateCustomerFeatureFlag(String customerCode, String flagName, CustomerFeatureFlagReq request);
 
     Map<String, Object> applyToTrackingOrder();
+
+    Map<String, Object> applyToCustomer(String customerCode);
 }
+

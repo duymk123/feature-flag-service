@@ -14,4 +14,5 @@ public class CustomerRes {
     private String customerCode;
     private String name;
     private String ipAddress;
+    private String serviceUrl;
 }
