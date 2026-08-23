@@ -284,9 +284,11 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     @Transactional
     // Bước 1: Lặp qua tất cả customer
     public Map<String, Object> applyToTrackingOrder() {
+        // lấy toàn bộ danh sách từ customer từ db
         List<Customer> customers = customerRepo.findAll();
         Map<String, Object> result = new HashMap<>();
 
+        // gọi apply cho từng customer
         for (Customer customer : customers) {
             try {
                 // Tách biệt dữ liệu: đẩy cấu hình riêng biệt của từng customer sang instance tương ứng của họ
@@ -334,7 +336,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     //helper:
     // Bước 3: Gửi HTTP POST đến đúng instance
     private Map<String, Object> pushSnapshot(String url, String label, String customerCode) {
+
         String version = Instant.now().toString();
+
         List<Map<String, Object>> features = Arrays.stream(FeatureFlags.values())
                 .map(flag -> toSnapshotFeature(flag, version, customerCode))
                 .toList();
@@ -352,6 +356,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         String syncUrl = url + "/api/v1/feature-flags/sync";
         // POST http://tracking-order-a:8080/api/v1/feature-flags/sync
         //  hoặc POST http://tracking-order-b:8080/api/v1/feature-flags/sync
+
         ResponseEntity<Map> response = restTemplate.postForEntity(syncUrl, new HttpEntity<>(snapshot, headers), Map.class);
 
         // lưu tracking audit
