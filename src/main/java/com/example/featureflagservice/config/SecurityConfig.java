@@ -55,39 +55,17 @@ public class SecurityConfig {
                 .build();
         return new InMemoryUserDetailsManager(admin);
     }
-    // 2. CẤU HÌNH TOGGLZ USER PROVIDER
+    // 2. CẤU HÌNH TOGGLZ USER PROVIDER CHO ADMIN CONSOLE
     @Bean
     public UserProvider userProvider() {
         return () -> {
-            // 1. Kiểm tra Context từ FeatureContextHolder (Remote Evaluation qua API)
-            com.example.featureflagservice.dto.FeatureContext context = 
-                    com.example.featureflagservice.adapter.FeatureContextHolder.getContext();
-            
-            if (context != null) {
-                // Tạo FeatureUser từ context
-                String username = context.getUsername() != null ? context.getUsername() : "anonymous-remote";
-                SimpleFeatureUser togglzUser = new SimpleFeatureUser(username, false);
-                
-                // Set roles cho Togglz gốc
-                if (context.getRoles() != null && !context.getRoles().isEmpty()) {
-                    togglzUser.setAttribute("roles", context.getRoles());
-                }
-                
-                // Lưu toàn bộ FeatureContext vào Attribute để Custom Strategy sử dụng
-                togglzUser.setAttribute(com.example.featureflagservice.common.FeatureContextConstants.ATTRIBUTE, context);
-                
-                return togglzUser;
-            }
-
-            // 2. Fallback cho Admin Console (truy cập trực tiếp trên browser)
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
             if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getPrincipal())) {
-                return null; // Khách lạ -> đuổi ra
+                return null; // Khách lạ -> không có quyền
             }
             // Kiểm tra xem user có role FEATURE_ADMIN không
             boolean isFeatureAdmin = auth.getAuthorities().stream()
                     .anyMatch(a -> a.getAuthority().equals("ROLE_FEATURE_ADMIN"));
-            // Trả về user cho Togglz
             return new SimpleFeatureUser(auth.getName(), isFeatureAdmin);
         };
     }

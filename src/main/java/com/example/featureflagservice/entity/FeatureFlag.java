@@ -36,12 +36,21 @@ public class FeatureFlag {
     @Column(name = "enabled", nullable = false)
     private Boolean enabled;
 
-    @Column(name = "strategy_id", length = 50)
-    private String strategyId;
-
+    // lưu xuống db theo dạng json
+    //[{"strategyId":"user-role","params":{"roles":"ROLE_BUYER"}},
+    // {"strategyId":"username","params":{"users":"duymk123"}}]
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "strategy_params", columnDefinition = "json")
-    private String strategyParams;
+    @Column(name = "strategies", columnDefinition = "json")
+    private String strategies;
+
+    @Builder.Default
+    @Column(name = "strategy_logic", nullable = false, length = 3)
+    private String strategyLogic = "OR";
+
+    @Builder.Default
+    @Column(name = "is_granted", nullable = false)
+    private boolean isGranted = false;
+
  // BaseEntity
     @CreatedDate
     @Column(name = "created_at", updatable = false)
@@ -59,13 +68,22 @@ public class FeatureFlag {
     @Column(name = "updated_by")
     private String updatedBy;
 
+    @Builder.Default
     @Column(name = "deleted", nullable = false)
     private boolean deleted = false;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.strategyLogic == null || this.strategyLogic.isBlank()) {
+            this.strategyLogic = "OR";
+        }
+    }
 
     public FeatureFlag(String name) {
         this.name = name;
         this.enabled = false;
+        this.isGranted = false;
+        this.strategyLogic = "OR";
+        this.deleted = false;
     }
-
-
 }

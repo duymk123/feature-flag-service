@@ -3,6 +3,7 @@ package com.example.featureflagservice.dto;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Response trả về khi query 1 flag.
@@ -20,6 +21,8 @@ public class FeatureFlagRes {
     private boolean enabled;
     private String description;
     private LocalDateTime updatedAt;
-    private String strategyId;
-    private java.util.Map<String, String> parameters;
+
+    // -> gom hết vào thành 1 strategies -> lưu dưới dạng json
+    private List<StrategyItem> strategies;
+    private String strategyLogic;
 }

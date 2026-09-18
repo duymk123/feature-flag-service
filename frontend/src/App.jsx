@@ -1,5 +1,338 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import './index.css'
+
+// ===== MultiSelectParam Component =====
+const MultiSelectParam = ({ strategyType, selectedValues, onChange, placeholder, options, loading }) => {
+  const [search, setSearch] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredOptions = (options || []).filter(opt =>
+    opt.value.toLowerCase().includes(search.toLowerCase()) ||
+    (opt.label && opt.label.toLowerCase().includes(search.toLowerCase()))
+  );
+
+  const isSelected = (val) => selectedValues.includes(val);
+
+  const toggleOption = (val) => {
+    if (isSelected(val)) {
+      onChange(selectedValues.filter(v => v !== val));
+    } else {
+      onChange([...selectedValues, val]);
+    }
+  };
+
+  const removeTag = (val) => {
+    onChange(selectedValues.filter(v => v !== val));
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && search.trim()) {
+      e.preventDefault();
+      const trimmed = search.trim();
+      if (!isSelected(trimmed)) {
+        onChange([...selectedValues, trimmed]);
+      }
+      setSearch('');
+    }
+    // Backspace to remove last tag
+    if (e.key === 'Backspace' && !search && selectedValues.length > 0) {
+      onChange(selectedValues.slice(0, -1));
+    }
+  };
+
+  const handleAddCustomClick = () => {
+    if (!search.trim()) return;
+    const trimmed = search.trim();
+    if (!isSelected(trimmed)) {
+      onChange([...selectedValues, trimmed]);
+    }
+    setSearch('');
+  };
+
+  const showAddNew = search.trim() && !(options || []).some(o => o.value.toLowerCase() === search.trim().toLowerCase());
+
+  return (
+    <div className="multi-select-container" ref={containerRef}>
+      <div className="multi-select-trigger" onClick={() => setIsOpen(!isOpen)}>
+        <span className="trigger-text">
+          {selectedValues.length === 0 ? "Please choose..." : selectedValues.join(', ')}
+        </span>
+        <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ color: 'var(--text-muted)' }}></i>
+      </div>
+
+      {isOpen && (
+        <div className="multi-select-dropdown">
+          <div className="multi-select-search-container">
+            <input
+              className="multi-select-search"
+              type="text"
+              placeholder="Tìm kiếm hoặc thêm mới..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={handleKeyDown}
+              autoFocus
+            />
+          </div>
+          {loading ? (
+            <div className="multi-select-loading">
+              <i className="fa-solid fa-spinner"></i> Đang tải...
+            </div>
+          ) : (
+            <>
+              {filteredOptions.length === 0 && !showAddNew && (
+                <div className="multi-select-empty">
+                  {search ? 'Không tìm thấy kết quả' : 'Chưa lấy được dữ liệu từ API. Bạn có thể gõ và nhấn Enter để thêm.'}
+                </div>
+              )}
+              {filteredOptions.length > 0 && (
+                <div
+                  className="multi-select-option"
+                  onClick={() => {
+                    const allSelected = filteredOptions.every(o => isSelected(o.value));
+                    if (allSelected) {
+                      // Deselect all filtered
+                      const filteredVals = filteredOptions.map(o => o.value);
+                      onChange(selectedValues.filter(v => !filteredVals.includes(v)));
+                    } else {
+                      // Select all filtered
+                      const filteredVals = filteredOptions.map(o => o.value);
+                      onChange([...new Set([...selectedValues, ...filteredVals])]);
+                    }
+                  }}
+                  style={{ borderBottom: '2px solid #e5e7eb', background: '#f9fafb' }}
+                >
+                  <div className="option-check">
+                    {filteredOptions.length > 0 && filteredOptions.every(o => isSelected(o.value)) && <i className="fa-solid fa-check"></i>}
+                  </div>
+                  <span className="option-label" style={{ fontWeight: 600 }}>Select All</span>
+                </div>
+              )}
+              {filteredOptions.map(opt => (
+                <div
+                  key={opt.id || opt.value}
+                  className={`multi-select-option ${isSelected(opt.value) ? 'selected' : ''}`}
+                  onClick={() => toggleOption(opt.value)}
+                >
+                  <div className="option-check">
+                    {isSelected(opt.value) && <i className="fa-solid fa-check"></i>}
+                  </div>
+                  <span className="option-label">{opt.value}</span>
+                  {opt.label && opt.label !== opt.value && (
+                    <span className="option-sublabel">{opt.label}</span>
+                  )}
+                </div>
+              ))}
+              {showAddNew && (
+                <div className="multi-select-add-new" onClick={handleAddCustomClick}>
+                  <i className="fa-solid fa-plus-circle"></i>
+                  Thêm "<strong>{search.trim()}</strong>" (nhấn Enter)
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ===== DatePickerParam Component =====
+const DatePickerParam = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  const parseInitialDate = () => {
+    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+      const parts = value.trim().split('-');
+      return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    }
+    return new Date();
+  };
+
+  const [viewDate, setViewDate] = useState(parseInitialDate);
+
+  useEffect(() => {
+    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+      const parts = value.trim().split('-');
+      setViewDate(new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+    }
+  }, [value]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const formatISO = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const handlePrevMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = (e) => {
+    e.stopPropagation();
+    setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1));
+  };
+
+  const selectDate = (d) => {
+    onChange(formatISO(d));
+    setIsOpen(false);
+  };
+
+  const applyPreset = (daysOffset) => {
+    const d = new Date();
+    d.setDate(d.getDate() + daysOffset);
+    onChange(formatISO(d));
+    setViewDate(d);
+    setIsOpen(false);
+  };
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1);
+  const lastDayOfMonth = new Date(year, month + 1, 0);
+
+  const startDay = (firstDayOfMonth.getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = lastDayOfMonth.getDate();
+  const prevMonthLastDay = new Date(year, month, 0).getDate();
+
+  const calendarDays = [];
+
+  for (let i = startDay - 1; i >= 0; i--) {
+    const d = new Date(year, month - 1, prevMonthLastDay - i);
+    calendarDays.push({ date: d, isCurrentMonth: false });
+  }
+
+  for (let i = 1; i <= daysInMonth; i++) {
+    const d = new Date(year, month, i);
+    calendarDays.push({ date: d, isCurrentMonth: true });
+  }
+
+  const remaining = (7 - (calendarDays.length % 7)) % 7;
+  for (let i = 1; i <= remaining; i++) {
+    const d = new Date(year, month + 1, i);
+    calendarDays.push({ date: d, isCurrentMonth: false });
+  }
+
+  const todayStr = formatISO(new Date());
+  const selectedStr = value ? value.trim() : '';
+  const isFuture = selectedStr && selectedStr > todayStr;
+  const isPastOrToday = selectedStr && selectedStr <= todayStr;
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+
+  return (
+    <div className="datepicker-container" ref={containerRef}>
+      <div className={`datepicker-trigger ${isOpen ? 'open' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+        <span className={`datepicker-value ${!selectedStr ? 'placeholder' : ''}`}>
+          <i className="fa-regular fa-calendar-days" style={{ color: '#10b981' }}></i>
+          {selectedStr || 'Chọn ngày phát hành (YYYY-MM-DD)'}
+        </span>
+        <div className="datepicker-icons">
+          {selectedStr && (
+            <button
+              type="button"
+              className="datepicker-clear-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange('');
+              }}
+              title="Xóa ngày"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          )}
+          <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'}`} style={{ fontSize: '11px' }}></i>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="datepicker-popover">
+          <div className="datepicker-header">
+            <button type="button" className="datepicker-nav-btn" onClick={handlePrevMonth}>
+              <i className="fa-solid fa-chevron-left"></i>
+            </button>
+            <span className="datepicker-title">
+              {monthNames[month]} {year}
+            </span>
+            <button type="button" className="datepicker-nav-btn" onClick={handleNextMonth}>
+              <i className="fa-solid fa-chevron-right"></i>
+            </button>
+          </div>
+
+          <div className="datepicker-grid-days">
+            {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+              <div key={d} className="datepicker-day-name">{d}</div>
+            ))}
+          </div>
+
+          <div className="datepicker-grid-dates">
+            {calendarDays.map((item, idx) => {
+              const dStr = formatISO(item.date);
+              const isSelected = selectedStr === dStr;
+              const isToday = todayStr === dStr;
+              return (
+                <div
+                  key={idx}
+                  className={`datepicker-date-cell ${
+                    !item.isCurrentMonth ? 'outside-month' : ''
+                  } ${isToday ? 'today' : ''} ${isSelected ? 'selected' : ''}`}
+                  onClick={() => selectDate(item.date)}
+                >
+                  {item.date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="datepicker-presets">
+            <button type="button" className="datepicker-preset-chip" onClick={() => applyPreset(0)}>Hôm nay</button>
+            <button type="button" className="datepicker-preset-chip" onClick={() => applyPreset(1)}>Ngày mai</button>
+            <button type="button" className="datepicker-preset-chip" onClick={() => applyPreset(7)}>+7 Ngày</button>
+            <button type="button" className="datepicker-preset-chip" onClick={() => applyPreset(30)}>+30 Ngày</button>
+          </div>
+        </div>
+      )}
+
+      {selectedStr && (
+        <div className={`datepicker-status-badge ${isFuture ? 'future' : 'past'}`}>
+          <i className={`fa-solid ${isFuture ? 'fa-lock' : 'fa-circle-check'}`}></i>
+          <span>
+            {isFuture
+              ? `🔒 Ngày tương lai (${selectedStr}): Chưa đến hạn, chiến lược trả về FALSE (Bị chặn). Thích hợp test logic AND!`
+              : `✅ Ngày hiện tại/quá khứ (${selectedStr}): Đã qua hạn, chiến lược trả về TRUE.`}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -37,12 +370,47 @@ function App() {
   const [savingCustomerFlag, setSavingCustomerFlag] = useState(null);
   const [applyingCustomer, setApplyingCustomer] = useState(false);
 
-  // Removed customerFlagEdits
+  // Multi-Strategy Editor State
+  // Each strategy: { strategyId: string, params: { key: value } }
+  const [editingStrategies, setEditingStrategies] = useState([]);
+  const [editingStrategyLogic, setEditingStrategyLogic] = useState('OR');
 
+  // Strategy options from DB (cache per type)
+  const [strategyOptionsCache, setStrategyOptionsCache] = useState({});
+  const [loadingOptions, setLoadingOptions] = useState({});
 
-  // Strategy Editor State
-  const [editingStrategyId, setEditingStrategyId] = useState('');
-  const [editingParams, setEditingParams] = useState('');
+  // Available strategy options
+  const strategyOptions = [
+    { value: 'user-role', label: 'User Role', paramKey: 'roles', paramLabel: 'Roles', placeholder: 'Tìm hoặc thêm role...', multiSelect: true },
+    { value: 'username', label: 'Users by name', paramKey: 'users', paramLabel: 'Users', placeholder: 'Tìm hoặc thêm user...', multiSelect: true },
+    { value: 'release-date', label: 'Release Date', paramKey: 'date', paramLabel: 'Date (YYYY-MM-DD)', placeholder: '2026-09-01', multiSelect: false },
+    { value: 'remote-client-ip', label: 'Remote Client IP', paramKey: 'ips', paramLabel: 'IP Addresses', placeholder: 'Tìm hoặc thêm IP...', multiSelect: true },
+    { value: 'remote-server-name', label: 'Remote Server Name', paramKey: 'serverNames', paramLabel: 'Server Names', placeholder: 'Tìm hoặc thêm server...', multiSelect: true },
+    { value: 'remote-spring-profile', label: 'Remote Spring Profile', paramKey: 'profiles', paramLabel: 'Spring Profiles', placeholder: 'Tìm hoặc thêm profile...', multiSelect: true },
+    { value: 'gradual-rollout', label: 'Gradual Rollout (%)', paramKey: 'percentage', paramLabel: 'Percentage (0-100)', placeholder: '50', multiSelect: false },
+    { value: 'remote-system-property', label: 'Remote System Property', paramKey: 'property', paramLabel: 'Property=Value', placeholder: 'os.name=windows', multiSelect: false },
+  ];
+
+  // Fetch strategy options from backend
+  const fetchStrategyOptions = (strategyType, customerCode = null) => {
+    // Cache key gồm cả customerCode để tránh dùng nhầm data của customer khác
+    const cacheKey = customerCode ? `${strategyType}__${customerCode}` : strategyType;
+    if (strategyOptionsCache[cacheKey] || loadingOptions[cacheKey]) return;
+    setLoadingOptions(prev => ({ ...prev, [cacheKey]: true }));
+    const url = customerCode
+      ? `http://localhost:8081/api/v1/flags/strategy-options/${strategyType}?customerCode=${encodeURIComponent(customerCode)}`
+      : `http://localhost:8081/api/v1/flags/strategy-options/${strategyType}`;
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        setStrategyOptionsCache(prev => ({ ...prev, [cacheKey]: data }));
+        setLoadingOptions(prev => ({ ...prev, [cacheKey]: false }));
+      })
+      .catch(err => {
+        console.error('Failed to fetch strategy options:', err);
+        setLoadingOptions(prev => ({ ...prev, [cacheKey]: false }));
+      });
+  };
 
   useEffect(() => {
     fetch('http://localhost:8081/api/v1/flags')
@@ -59,7 +427,7 @@ function App() {
         setError('Failed to load data from backend. Ensure Spring Boot is running on port 8081.');
         setLoading(false);
       });
-  }, [isLoggedIn]); // Re-fetch flags if login state changes
+  }, [isLoggedIn]);
 
   useEffect(() => {
     if (activeTab === 'audit' && isLoggedIn) {
@@ -143,7 +511,6 @@ function App() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.message || 'Failed to delete customer');
       }
-      // Remove from local state
       setCustomers(customers.filter(c => c.customerCode !== customerCode));
       showToast('Success', `Customer ${customerCode} deleted successfully.`, 'success');
     })
@@ -167,14 +534,13 @@ function App() {
 
   const toggleCustomerFlagStatus = (flagName, currentStatus) => {
     const cflag = customerFlags.find(cf => cf.flagName === flagName);
-    const strategyId = cflag ? cflag.strategyId : null;
-    const strategyParams = cflag ? cflag.strategyParams : null;
+    const strategies = cflag ? cflag.strategies : [];
     const newStatus = !currentStatus;
 
     fetch(`http://localhost:8081/api/v1/flags/customers/${selectedCustomer.customerCode}/features/${flagName}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: newStatus, strategyId, strategyParams })
+      body: JSON.stringify({ enabled: newStatus, strategies })
     })
     .then(res => res.json())
     .then(updated => {
@@ -233,49 +599,35 @@ function App() {
     .catch(err => console.error(err));
   };
 
-  const getParamValueFromMap = (stratId, parameters) => {
-    if (!parameters) return '';
-    if (stratId === 'username' && parameters.users) return parameters.users;
-    if (stratId === 'user-role' && parameters.roles) return parameters.roles;
-    if (stratId === 'release-date' && parameters.date) return parameters.date;
-    if (stratId === 'remote-client-ip' && parameters.ips) return parameters.ips;
-    if (stratId === 'remote-server-name' && parameters.serverNames) return parameters.serverNames;
-    if (stratId === 'remote-spring-profile' && parameters.profiles) return parameters.profiles;
-    if (stratId === 'gradual-rollout' && parameters.percentage) return parameters.percentage;
-    if (stratId === 'remote-system-property' && parameters.property) return parameters.property + (parameters.value ? '=' + parameters.value : '');
-    return Object.values(parameters).find(v => v !== null && v !== '') || '';
+  // ===== Multi-Strategy Helpers =====
+
+  const getStrategyLabel = (strategyId) => {
+    const opt = strategyOptions.find(o => o.value === strategyId);
+    return opt ? opt.label : strategyId || 'Unknown';
   };
 
-  const openDrawer = (flag) => {
-    setSelectedFlag(flag);
-    const stratId = flag.strategyId || '';
-    setEditingStrategyId(stratId);
-    setEditingParams(getParamValueFromMap(stratId, flag.parameters));
-    setDrawerOpen(true);
-  };
-
-  const openCustomerDrawer = (flag, cflag) => {
-    const isEnabled = cflag ? Boolean(cflag.enabled) : false;
-    const stratId = cflag ? cflag.strategyId : null;
-    const params = cflag ? cflag.strategyParams : null;
+  const getStrategyParamDisplay = (strategy) => {
+    if (!strategy || !strategy.params) return '';
+    const opt = strategyOptions.find(o => o.value === strategy.strategyId);
+    if (!opt) return Object.values(strategy.params).join(', ');
     
-    setSelectedFlag({
-      ...flag,
-      enabled: isEnabled,
-      strategyId: stratId,
-      parameters: params
-    });
-    
-    setEditingStrategyId(stratId || '');
-    setEditingParams(getParamValueFromMap(stratId, params));
-    setDrawerOpen(true);
+    if (strategy.strategyId === 'remote-system-property') {
+      return (strategy.params.property || '') + (strategy.params.value ? '=' + strategy.params.value : '');
+    }
+    return strategy.params[opt.paramKey] || Object.values(strategy.params).join(', ');
   };
 
-  const closeDrawer = () => {
-    setDrawerOpen(false);
-    setTimeout(() => setSelectedFlag(null), 300);
+  const getStrategiesSummary = (strategies) => {
+    if (!strategies || strategies.length === 0) return null;
+    return strategies.map(s => getStrategyLabel(s.strategyId)).join(', ');
   };
 
+  const getStrategiesParamsSummary = (strategies) => {
+    if (!strategies || strategies.length === 0) return null;
+    return strategies.map(s => getStrategyParamDisplay(s)).filter(Boolean).join(' | ');
+  };
+
+  // Convert strategy params from flat string to proper map based on strategyId
   const buildParamsMap = (strategyId, paramsRaw) => {
     const paramsMap = {};
     if (strategyId === 'username') paramsMap['users'] = paramsRaw;
@@ -295,12 +647,113 @@ function App() {
     return paramsMap;
   };
 
+  // Convert strategy params map back to flat display string
+  const paramsMapToDisplay = (strategyId, params) => {
+    if (!params) return '';
+    if (strategyId === 'username') return params.users || '';
+    if (strategyId === 'user-role') return params.roles || '';
+    if (strategyId === 'release-date') return params.date || '';
+    if (strategyId === 'remote-client-ip') return params.ips || '';
+    if (strategyId === 'remote-server-name') return params.serverNames || '';
+    if (strategyId === 'remote-spring-profile') return params.profiles || '';
+    if (strategyId === 'gradual-rollout') return params.percentage || '';
+    if (strategyId === 'remote-system-property') return (params.property || '') + (params.value ? '=' + params.value : '');
+    return Object.values(params).find(v => v !== null && v !== '') || '';
+  };
+
+  // ===== Drawer Open/Close =====
+
+  const openDrawer = (flag) => {
+    setSelectedFlag(flag);
+    // Convert strategies from API format to editing format
+    const strategies = (flag.strategies || []).map(s => ({
+      strategyId: s.strategyId || '',
+      paramsRaw: paramsMapToDisplay(s.strategyId, s.params)
+    }));
+    setEditingStrategies(strategies);
+    setEditingStrategyLogic(flag.strategyLogic || 'OR');
+    // Pre-fetch options for existing strategies that use multi-select
+    strategies.forEach(s => {
+      const opt = strategyOptions.find(o => o.value === s.strategyId);
+      if (opt && opt.multiSelect) {
+        fetchStrategyOptions(s.strategyId, null);
+      }
+    });
+    setDrawerOpen(true);
+  };
+
+  const openCustomerDrawer = (flag, cflag) => {
+    const isEnabled = cflag ? Boolean(cflag.enabled) : false;
+    const strategies = cflag && cflag.strategies ? cflag.strategies : [];
+    
+    setSelectedFlag({
+      ...flag,
+      enabled: isEnabled,
+      strategies: strategies
+    });
+    
+    const editStrategies = strategies.map(s => ({
+      strategyId: s.strategyId || '',
+      paramsRaw: paramsMapToDisplay(s.strategyId, s.params)
+    }));
+    setEditingStrategies(editStrategies);
+    setEditingStrategyLogic((cflag && cflag.strategyLogic) || 'OR');
+    // Pre-fetch options for existing strategies that use multi-select
+    editStrategies.forEach(s => {
+      const opt = strategyOptions.find(o => o.value === s.strategyId);
+      if (opt && opt.multiSelect) {
+        fetchStrategyOptions(s.strategyId, selectedCustomer ? selectedCustomer.customerCode : null);
+      }
+    });
+    setDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setTimeout(() => setSelectedFlag(null), 300);
+  };
+
+  // ===== Strategy editing helpers =====
+
+  const addStrategy = () => {
+    setEditingStrategies([...editingStrategies, { strategyId: '', paramsRaw: '' }]);
+  };
+
+  const removeStrategy = (index) => {
+    setEditingStrategies(editingStrategies.filter((_, i) => i !== index));
+  };
+
+  const updateStrategy = (index, field, value) => {
+    setEditingStrategies(editingStrategies.map((s, i) => {
+      if (i !== index) return s;
+      if (field === 'strategyId') {
+        // When strategy type changes, fetch options for the new type
+        const opt = strategyOptions.find(o => o.value === value);
+        if (opt && opt.multiSelect) {
+          const customerCode = activeTab === 'customers' && selectedCustomer ? selectedCustomer.customerCode : null;
+          fetchStrategyOptions(value, customerCode);
+        }
+        return { ...s, strategyId: value, paramsRaw: '' };
+      }
+      return { ...s, [field]: value };
+    }));
+  };
+
+  // ===== Save functions =====
+
   const saveGlobalStrategy = () => {
-    const paramsMap = buildParamsMap(editingStrategyId, editingParams);
+    // Convert editing format to API format
+    const strategies = editingStrategies
+      .filter(s => s.strategyId) // Remove empty strategies
+      .map(s => ({
+        strategyId: s.strategyId,
+        params: buildParamsMap(s.strategyId, s.paramsRaw)
+      }));
+
     fetch(`http://localhost:8081/api/v1/flags/${selectedFlag.name}/strategy`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ strategyId: editingStrategyId || null, parameters: paramsMap })
+      body: JSON.stringify({ strategies, strategyLogic: editingStrategyLogic })
     })
     .then(async res => {
       const data = await res.json();
@@ -310,11 +763,10 @@ function App() {
     .then(updatedFlag => {
       setFlags(flags.map(f => f.name === updatedFlag.name ? { 
         ...f, 
-        strategyId: updatedFlag.strategyId, 
-        parameters: updatedFlag.parameters,
-        mockRules: updatedFlag.strategyId ? 1 : 0
+        strategies: updatedFlag.strategies
       } : f));
       closeDrawer();
+      showToast('Saved', 'Strategies updated successfully', 'success');
     })
     .catch(err => {
       console.error(err);
@@ -323,14 +775,20 @@ function App() {
   };
 
   const saveCustomerStrategy = () => {
-    const paramsMap = buildParamsMap(editingStrategyId, editingParams);
+    const strategies = editingStrategies
+      .filter(s => s.strategyId)
+      .map(s => ({
+        strategyId: s.strategyId,
+        params: buildParamsMap(s.strategyId, s.paramsRaw)
+      }));
+
     fetch(`http://localhost:8081/api/v1/flags/customers/${selectedCustomer.customerCode}/features/${selectedFlag.name}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         enabled: selectedFlag.enabled, 
-        strategyId: editingStrategyId || null, 
-        strategyParams: Object.keys(paramsMap).length > 0 ? paramsMap : null 
+        strategies: strategies.length > 0 ? strategies : [],
+        strategyLogic: editingStrategyLogic
       })
     })
     .then(async res => {
@@ -345,7 +803,7 @@ function App() {
         return [...prev, updated];
       });
       closeDrawer();
-      showToast('Saved', `Strategy updated for ${selectedCustomer.name}`, 'success');
+      showToast('Saved', `Strategies updated for ${selectedCustomer.name}`, 'success');
     })
     .catch(err => {
       console.error(err);
@@ -371,22 +829,6 @@ function App() {
       showToast('Error', 'Cannot apply feature flags: ' + err.message, 'error');
     })
     .finally(() => setApplying(false));
-  };
-
-  const getParameterDisplay = (flag) => {
-    if (!flag.strategyId || !flag.parameters) return null;
-    switch (flag.strategyId) {
-      case 'username': return flag.parameters.users;
-      case 'user-role': return flag.parameters.roles;
-      case 'release-date': return flag.parameters.date;
-      case 'remote-client-ip': return flag.parameters.ips;
-      case 'remote-server-name': return flag.parameters.serverNames;
-      case 'remote-spring-profile': return flag.parameters.profiles;
-      case 'gradual-rollout': return flag.parameters.percentage;
-      case 'remote-system-property': return flag.parameters.property + (flag.parameters.value ? '=' + flag.parameters.value : '');
-      default:
-        return Object.values(flag.parameters).find(v => v !== null && v !== '');
-    }
   };
 
   const enabledCount = flags.filter(f => f.enabled).length;
@@ -536,16 +978,17 @@ function App() {
               <tr>
                 <th>FLAG NAME</th>
                 <th>KEY</th>
-                <th>STRATEGY TYPE</th>
+                <th>STRATEGIES</th>
                 <th>PARAMETERS</th>
                 <th>STATUS</th>
                 <th>RULES</th>
                 <th>UPDATED</th>
+                <th>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan="7" style={{textAlign: 'center'}}>Loading...</td></tr>}
-              {error && <tr><td colSpan="7" style={{textAlign: 'center', color: 'red'}}>{error}</td></tr>}
+              {loading && <tr><td colSpan="8" style={{textAlign: 'center'}}>Loading...</td></tr>}
+              {error && <tr><td colSpan="8" style={{textAlign: 'center', color: 'red'}}>{error}</td></tr>}
               {!loading && !error && flags.map(flag => (
                 <tr key={flag.id || flag.name} onClick={() => openDrawer(flag)}>
                   <td>
@@ -554,16 +997,20 @@ function App() {
                   </td>
                   <td><span className="flag-key">{flag.name.toLowerCase()}</span></td>
                   <td>
-                    {flag.strategyId ? (
-                      <span className="badge badge-release" style={{textTransform: 'none'}}>{flag.strategyId}</span>
+                    {flag.strategies && flag.strategies.length > 0 ? (
+                      <div style={{display: 'flex', flexWrap: 'wrap', gap: '4px'}}>
+                        {flag.strategies.map((s, i) => (
+                          <span key={i} className="badge badge-release" style={{textTransform: 'none', fontSize: '11px'}}>{getStrategyLabel(s.strategyId)}</span>
+                        ))}
+                      </div>
                     ) : (
                       <span className="badge" style={{background: '#f3f4f6', color: '#6b7280'}}>None</span>
                     )}
                   </td>
                   <td style={{maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
-                    {getParameterDisplay(flag) ? (
-                       <span style={{fontFamily: 'monospace', fontSize: '13px', color: '#4b5563'}} title={getParameterDisplay(flag)}>
-                         {getParameterDisplay(flag)}
+                    {getStrategiesParamsSummary(flag.strategies) ? (
+                       <span style={{fontFamily: 'monospace', fontSize: '13px', color: '#4b5563'}} title={getStrategiesParamsSummary(flag.strategies)}>
+                         {getStrategiesParamsSummary(flag.strategies)}
                        </span>
                     ) : (
                        <span style={{color: '#9ca3af', fontStyle: 'italic', fontSize: '12px'}}>No params</span>
@@ -580,8 +1027,13 @@ function App() {
                       </span>
                     </div>
                   </td>
-                  <td><span style={{color: 'var(--primary)', background: '#fff3f2', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600}}>{flag.strategyId ? '1 rule' : '0 rules'}</span></td>
+                  <td><span style={{color: 'var(--primary)', background: '#fff3f2', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600}}>{flag.strategies && flag.strategies.length > 0 ? `${flag.strategies.length} rule${flag.strategies.length > 1 ? 's' : ''}` : '0 rules'}</span></td>
                   <td style={{color: 'var(--text-muted)', fontSize: '12px'}}>{flag.updatedAt ? new Date(flag.updatedAt).toLocaleString() : new Date().toLocaleString()}</td>
+                  <td>
+                    <button className="btn btn-outline" style={{padding: '4px 8px', fontSize: '12px'}} onClick={(e) => { e.stopPropagation(); openDrawer(flag); }}>
+                      <i className="fa-solid fa-pen" style={{marginRight: '4px'}}></i>Edit
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -683,25 +1135,20 @@ function App() {
                       <tr>
                         <th>FLAG NAME</th>
                         <th>KEY</th>
-                        <th>STRATEGY TYPE</th>
+                        <th>STRATEGIES</th>
                         <th>PARAMETERS</th>
                         <th>STATUS</th>
                         <th>RULES</th>
                         <th>UPDATED</th>
+                        <th>ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {customerFlagsLoading && <tr><td colSpan="7" style={{textAlign: 'center'}}>Loading...</td></tr>}
+                      {customerFlagsLoading && <tr><td colSpan="8" style={{textAlign: 'center'}}>Loading...</td></tr>}
                       {!customerFlagsLoading && flags.map(flag => {
                         const cflag = customerFlags.find(cf => cf.flagName === flag.name);
                         const isEnabled = cflag ? Boolean(cflag.enabled) : false;
-                        
-                        // Use pseudo flag to utilize getParameterDisplay correctly
-                        const pseudoFlag = {
-                          ...flag,
-                          strategyId: cflag ? cflag.strategyId : null,
-                          parameters: cflag ? cflag.strategyParams : null
-                        };
+                        const strategies = cflag ? cflag.strategies : [];
 
                         return (
                           <tr key={flag.name} onClick={() => openCustomerDrawer(flag, cflag)}>
@@ -711,16 +1158,20 @@ function App() {
                             </td>
                             <td><span className="flag-key">{flag.name.toLowerCase()}</span></td>
                             <td>
-                              {pseudoFlag.strategyId ? (
-                                <span className="badge badge-release" style={{textTransform: 'none'}}>{pseudoFlag.strategyId}</span>
+                              {strategies && strategies.length > 0 ? (
+                                <div style={{display: 'flex', flexWrap: 'wrap', gap: '4px'}}>
+                                  {strategies.map((s, i) => (
+                                    <span key={i} className="badge badge-release" style={{textTransform: 'none', fontSize: '11px'}}>{getStrategyLabel(s.strategyId)}</span>
+                                  ))}
+                                </div>
                               ) : (
                                 <span className="badge" style={{background: '#f3f4f6', color: '#6b7280'}}>None</span>
                               )}
                             </td>
                             <td style={{maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>
-                              {getParameterDisplay(pseudoFlag) ? (
-                                 <span style={{fontFamily: 'monospace', fontSize: '13px', color: '#4b5563'}} title={getParameterDisplay(pseudoFlag)}>
-                                   {getParameterDisplay(pseudoFlag)}
+                              {getStrategiesParamsSummary(strategies) ? (
+                                 <span style={{fontFamily: 'monospace', fontSize: '13px', color: '#4b5563'}} title={getStrategiesParamsSummary(strategies)}>
+                                   {getStrategiesParamsSummary(strategies)}
                                  </span>
                               ) : (
                                  <span style={{color: '#9ca3af', fontStyle: 'italic', fontSize: '12px'}}>No params</span>
@@ -737,8 +1188,13 @@ function App() {
                                 </span>
                               </div>
                             </td>
-                            <td><span style={{color: 'var(--primary)', background: '#fff3f2', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600}}>{pseudoFlag.strategyId ? '1 rule' : '0 rules'}</span></td>
+                            <td><span style={{color: 'var(--primary)', background: '#fff3f2', padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600}}>{strategies && strategies.length > 0 ? `${strategies.length} rule${strategies.length > 1 ? 's' : ''}` : '0 rules'}</span></td>
                             <td style={{color: 'var(--text-muted)', fontSize: '12px'}}>{cflag?.updatedAt ? new Date(cflag.updatedAt).toLocaleString() : '-'}</td>
+                            <td>
+                              <button className="btn btn-outline" style={{padding: '4px 8px', fontSize: '12px'}} onClick={(e) => { e.stopPropagation(); openCustomerDrawer(flag, cflag); }}>
+                                <i className="fa-solid fa-pen" style={{marginRight: '4px'}}></i>Edit
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -781,14 +1237,14 @@ function App() {
         )}
       </main>
 
-      {/* Drawer */}
+      {/* Drawer — Multi-Strategy Editor */}
       <aside className={`drawer ${drawerOpen ? 'open' : ''}`}>
         {selectedFlag && (
           <>
             <div className="drawer-header">
               <div className="drawer-title">
-                {selectedFlag.strategyId ? (
-                  <span className="badge badge-release" style={{textTransform: 'none'}}>{selectedFlag.strategyId}</span>
+                {selectedFlag.strategies && selectedFlag.strategies.length > 0 ? (
+                  <span className="badge badge-release" style={{textTransform: 'none'}}>{selectedFlag.strategies.length} strateg{selectedFlag.strategies.length > 1 ? 'ies' : 'y'}</span>
                 ) : (
                   <span className="badge" style={{background: '#f3f4f6', color: '#6b7280'}}>No Strategy</span>
                 )}
@@ -805,65 +1261,131 @@ function App() {
               <h2>{selectedFlag.name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}</h2>
               <p className="drawer-flag-key">{selectedFlag.name.toLowerCase()}</p>
 
-              <div className="section-title">
-                  <h4>ACTIVATION STRATEGY</h4>
+              <div className="section-title" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <h4>ACTIVATION STRATEGIES</h4>
+                  <button className="btn btn-outline" style={{fontSize: '12px', padding: '4px 12px'}} onClick={addStrategy}>
+                    <i className="fa-solid fa-plus" style={{marginRight: '4px'}}></i> Add Strategy
+                  </button>
               </div>
 
-              <div className="rule-card">
-                  <div className="rule-body" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
-                      <label style={{fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px'}}>Strategy Type</label>
+              <div style={{fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px', padding: '8px 12px', background: editingStrategyLogic === 'AND' ? '#fef3c7' : '#f0fdf4', border: `1px solid ${editingStrategyLogic === 'AND' ? '#fde68a' : '#bbf7d0'}`, borderRadius: '6px', transition: 'all 0.3s ease'}}>
+                <i className="fa-solid fa-circle-info" style={{marginRight: '6px', color: editingStrategyLogic === 'AND' ? '#d97706' : '#16a34a'}}></i>
+                {editingStrategyLogic === 'AND' 
+                  ? <>Flag active nếu user thỏa mãn <strong>tất cả</strong> strategies bên dưới.</>
+                  : <>Flag active nếu user thỏa mãn <strong>ít nhất 1</strong> strategy bên dưới.</>
+                }
+              </div>
+
+              <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--border-color)'}}>
+                <span style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginRight: '4px'}}>Logic:</span>
+                <button 
+                  onClick={() => setEditingStrategyLogic('OR')}
+                  style={{
+                    padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                    border: editingStrategyLogic === 'OR' ? '2px solid #16a34a' : '1px solid var(--border-color)',
+                    background: editingStrategyLogic === 'OR' ? '#dcfce7' : '#fff',
+                    color: editingStrategyLogic === 'OR' ? '#16a34a' : 'var(--text-muted)',
+                    transition: 'all 0.2s ease'
+                  }}
+                >OR</button>
+                <button 
+                  onClick={() => setEditingStrategyLogic('AND')}
+                  style={{
+                    padding: '4px 14px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                    border: editingStrategyLogic === 'AND' ? '2px solid #d97706' : '1px solid var(--border-color)',
+                    background: editingStrategyLogic === 'AND' ? '#fef3c7' : '#fff',
+                    color: editingStrategyLogic === 'AND' ? '#d97706' : 'var(--text-muted)',
+                    transition: 'all 0.2s ease'
+                  }}
+                >AND</button>
+                <span style={{fontSize: '11px', color: 'var(--text-muted)', marginLeft: '4px'}}>
+                  {editingStrategyLogic === 'AND' ? 'User phải thỏa tất cả điều kiện' : 'User chỉ cần thỏa 1 điều kiện'}
+                </span>
+              </div>
+
+              {editingStrategies.length === 0 && (
+                <div className="rule-card" style={{textAlign: 'center', padding: '24px', color: 'var(--text-muted)'}}>
+                  <i className="fa-solid fa-layer-group" style={{fontSize: '24px', marginBottom: '8px', display: 'block', opacity: 0.5}}></i>
+                  <p style={{fontSize: '13px', margin: 0}}>No strategies configured. Click "Add Strategy" to add one.</p>
+                </div>
+              )}
+
+              {editingStrategies.map((strategy, index) => {
+                const opt = strategyOptions.find(o => o.value === strategy.strategyId);
+                return (
+                  <div key={index} className="rule-card" style={{marginBottom: '12px', position: 'relative'}}>
+                    <button 
+                      onClick={() => removeStrategy(index)} 
+                      style={{
+                        position: 'absolute', top: '8px', right: '8px',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--danger)', fontSize: '14px', padding: '4px',
+                        borderRadius: '4px', lineHeight: 1
+                      }}
+                      title="Remove this strategy"
+                    >
+                      <i className="fa-solid fa-trash-can"></i>
+                    </button>
+                    <div className="rule-body" style={{flexDirection: 'column', alignItems: 'flex-start'}}>
+                      <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px'}}>
+                        Strategy #{index + 1}
+                      </label>
                       <select 
                         className="select-serve" 
-                        style={{width: '100%', marginBottom: '16px'}}
-                        value={editingStrategyId}
-                        onChange={(e) => {
-                          setEditingStrategyId(e.target.value);
-                          setEditingParams('');
-                        }}
+                        style={{width: '100%', marginBottom: '12px'}}
+                        value={strategy.strategyId}
+                        onChange={(e) => updateStrategy(index, 'strategyId', e.target.value)}
                       >
-                          <option value="">(None)</option>
-                          <option value="user-role">User Role</option>
-                          <option value="username">Users by name</option>
-                          <option value="release-date">Release Date</option>
-                          <option value="remote-client-ip">Remote Client IP</option>
-                          <option value="remote-server-name">Remote Server Name</option>
-                          <option value="remote-spring-profile">Remote Spring Profile</option>
-                          <option value="remote-system-property">Remote System Property</option>
-                          <option value="gradual-rollout">Gradual Rollout (%)</option>
+                        <option value="">(Select a strategy)</option>
+                        {strategyOptions.map(o => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
                       </select>
 
-                      {editingStrategyId && (
+                      {strategy.strategyId && (
                         <>
-                          <label style={{fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px'}}>
-                            {editingStrategyId === 'username' ? 'Users (comma separated)' :
-                             editingStrategyId === 'user-role' ? 'Roles (comma separated)' :
-                             editingStrategyId === 'release-date' ? 'Date (YYYY-MM-DD) or (YYYY-MM-DD HH:mm:ss)' :
-                             editingStrategyId === 'remote-client-ip' ? 'IP Addresses (comma separated)' :
-                             editingStrategyId === 'remote-server-name' ? 'Server Names (comma separated)' :
-                             editingStrategyId === 'remote-spring-profile' ? 'Spring Profiles (comma separated)' :
-                             editingStrategyId === 'remote-system-property' ? 'Property=Value (e.g. os.name=windows)' :
-                             editingStrategyId === 'gradual-rollout' ? 'Percentage (0-100)' :
-                             'Parameter Value'}
+                          <label style={{fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px'}}>
+                            {opt ? opt.paramLabel : 'Parameter Value'}
                           </label>
-                          <textarea 
-                            style={{width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', minHeight: '60px', outline: 'none'}}
-                            placeholder="Enter value here..."
-                            value={editingParams}
-                            onChange={(e) => setEditingParams(e.target.value)}
-                          ></textarea>
+                          {strategy.strategyId === 'release-date' ? (
+                            <DatePickerParam
+                              value={strategy.paramsRaw || ''}
+                              onChange={(newDate) => updateStrategy(index, 'paramsRaw', newDate)}
+                            />
+                          ) : opt && opt.multiSelect ? (
+                            (() => {
+                              const customerCode = activeTab === 'customers' && selectedCustomer ? selectedCustomer.customerCode : null;
+                              const cacheKey = customerCode ? `${strategy.strategyId}__${customerCode}` : strategy.strategyId;
+                              const values = strategy.paramsRaw ? strategy.paramsRaw.split(',').map(v => v.trim()).filter(Boolean) : [];
+                              return (
+                                <MultiSelectParam
+                                  strategyType={strategy.strategyId}
+                                  selectedValues={values}
+                                  onChange={(newVals) => updateStrategy(index, 'paramsRaw', newVals.join(', '))}
+                                  placeholder={opt.placeholder}
+                                  options={strategyOptionsCache[cacheKey] || []}
+                                  loading={loadingOptions[cacheKey] || false}
+                                />
+                              );
+                            })()
+                          ) : (
+                            <textarea 
+                              style={{width: '100%', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '6px', fontFamily: 'monospace', minHeight: '50px', outline: 'none', resize: 'vertical'}}
+                              placeholder={opt ? opt.placeholder : 'Enter value here...'}
+                              value={strategy.paramsRaw}
+                              onChange={(e) => updateStrategy(index, 'paramsRaw', e.target.value)}
+                            ></textarea>
+                          )}
                         </>
                       )}
+                    </div>
                   </div>
-              </div>
-
-
+                );
+              })}
             </div>
             
             <div className="drawer-footer">
-                <button className="btn btn-outline" onClick={() => {
-                  setEditingStrategyId('');
-                  setEditingParams('');
-                }}>Clear</button>
+                <button className="btn btn-outline" onClick={() => setEditingStrategies([])}>Clear All</button>
                 <div className="drawer-actions">
                     <button className="btn btn-outline" onClick={closeDrawer}>Discard</button>
                     <button className="btn btn-primary" onClick={activeTab === 'customers' ? saveCustomerStrategy : saveGlobalStrategy}>Save Changes</button>

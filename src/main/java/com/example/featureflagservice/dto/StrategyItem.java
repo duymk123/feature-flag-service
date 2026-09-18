@@ -5,14 +5,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class CustomerRes {
-    private String id;
-    private String customerCode;
-    private String name;
-    private String ipAddress;
-    private String serviceUrl;
+public class StrategyItem {
+    // config strategy => save theo json
+    private String strategyId;
+    private Map<String, String> params;
 }

@@ -1,43 +1,31 @@
 package com.example.featureflagservice.service;
 
-import com.example.featureflagservice.dto.FeatureEvaluationRequest;
-import com.example.featureflagservice.dto.FeatureFlagRes;
-import com.example.featureflagservice.dto.UpdateStrategyReq;
-import com.example.featureflagservice.dto.CreateCustomerReq;
-import com.example.featureflagservice.dto.CustomerFeatureFlagReq;
-import com.example.featureflagservice.dto.CustomerFeatureFlagRes;
-import com.example.featureflagservice.dto.CustomerRes;
+import com.example.featureflagservice.dto.*;
 
 import java.util.List;
 import java.util.Map;
 
 public interface FeatureFlagService {
+
+    List<StrategyOptionRes> getStrategyOptions(String strategyType);
+
     List<FeatureFlagRes> GetAllFlags();
 
     FeatureFlagRes getFlag(String name);
 
     FeatureFlagRes updateFlagStatus(String name, boolean enabled);
 
+    FeatureFlagRes updateFlagGrant(String name, boolean isGranted);
+
     FeatureFlagRes updateFlagStrategy(String name, UpdateStrategyReq req);
 
-    List<com.example.featureflagservice.dto.FeatureFlagAuditRes> getAuditLogs();
+    List<FeatureFlagAuditRes> getAuditLogs();
 
     boolean evaluateFlag(FeatureEvaluationRequest request);
 
-    List<CustomerRes> getCustomers();
-
-    CustomerRes createCustomer(CreateCustomerReq request);
-
-    CustomerRes updateCustomer(String customerCode, CreateCustomerReq request);
-
-    void deleteCustomer(String customerCode);
-
-    List<CustomerFeatureFlagRes> getCustomerFeatureFlags(String customerCode);
-
-    CustomerFeatureFlagRes updateCustomerFeatureFlag(String customerCode, String flagName, CustomerFeatureFlagReq request);
+    FeatureFlagBulkEvaluationRes evaluateAllFlags(FeatureEvaluationRequest request);
 
     Map<String, Object> applyToTrackingOrder();
-
-    Map<String, Object> applyToCustomer(String customerCode);
 }
+
 

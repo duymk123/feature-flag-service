@@ -5,13 +5,14 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
+import java.util.List;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class UpdateStrategyReq {
-    private String strategyId;
-    private Map<String, String> parameters;
+    // update -> từ strategy id và param id -> giờ đồi thành list
+    private List<StrategyItem> strategies;
+    private String strategyLogic;
 }
